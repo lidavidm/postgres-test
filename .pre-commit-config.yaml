@@ -47,3 +47,8 @@ repos:
   hooks:
   - id: clang-format
     types_or: [c, c++]
+
+- repo: https://github.com/adbc-drivers/dev
+  rev: v0.1.0
+  hooks:
+  - id: rat
