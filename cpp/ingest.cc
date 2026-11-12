@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <libpq-fe.h>
 #include <nanoarrow/nanoarrow_ipc.h>
 
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -92,10 +94,32 @@ int main(int argc, char** argv) {
       e.Check(AdbcStatementExecuteQuery(&s.value, nullptr, nullptr, &e.value),
               "execute SQL");
     };
-    sql("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_am WHERE "
-        "amname='pgrcolumnar') THEN CREATE ACCESS METHOD pgrcolumnar TYPE "
-        "TABLE HANDLER heap_tableam_handler; END IF; END $$;");
+    std::unique_ptr<PGconn, decltype(&PQfinish)> raw(PQconnectdb(argv[1]),
+                                                     PQfinish);
+    if (!raw || PQstatus(raw.get()) != CONNECTION_OK)
+      throw std::runtime_error(raw ? PQerrorMessage(raw.get())
+                                   : "allocate libpq connection");
+    std::unique_ptr<PGresult, decltype(&PQclear)> info(
+        PQexec(raw.get(), "SELECT version()"), PQclear);
+    if (!info || PQresultStatus(info.get()) != PGRES_TUPLES_OK ||
+        PQntuples(info.get()) != 1 || PQgetisnull(info.get(), 0, 0))
+      throw std::runtime_error("read server version: " +
+                               std::string(PQerrorMessage(raw.get())));
+    std::string version = PQgetvalue(info.get(), 0, 0);
+    if (version.empty()) throw std::runtime_error("empty server version");
+    std::string identity = version;
+    std::transform(identity.begin(), identity.end(), identity.begin(),
+                   [](unsigned char value) { return std::tolower(value); });
+    bool const pgrust = identity.find("pgrust") != std::string::npos;
+    std::cerr << "Server: " << version << "; columnar=" << pgrust << '\n';
+    info.reset();
+    raw.reset();
+    if (pgrust)
+      sql("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_am WHERE "
+          "amname='pgrcolumnar') THEN CREATE ACCESS METHOD pgrcolumnar TYPE "
+          "TABLE HANDLER heap_tableam_handler; END IF; END $$;");
     for (bool columnar : {false, true}) {
+      if (columnar && !pgrust) continue;
       std::string table =
           columnar ? "lineitem_ingest_columnar" : "lineitem_ingest_heap";
       std::array<double, 5> times{};

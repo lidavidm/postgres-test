@@ -14,7 +14,9 @@
 
 #include <libpq-fe.h>
 
+#include <cctype>
 #include <memory>
+#include <vector>
 
 #include "common.h"
 int main(int argc, char** argv) {
@@ -47,8 +49,22 @@ int main(int argc, char** argv) {
     if (!raw || PQstatus(raw.get()) != CONNECTION_OK)
       throw std::runtime_error(raw ? PQerrorMessage(raw.get())
                                    : "allocate libpq connection");
-    for (char const* table :
-         {"public.lineitem_heap", "public.lineitem_columnar"}) {
+    std::unique_ptr<PGresult, decltype(&PQclear)> info(
+        PQexec(raw.get(), "SELECT version()"), PQclear);
+    if (!info || PQresultStatus(info.get()) != PGRES_TUPLES_OK ||
+        PQntuples(info.get()) != 1 || PQgetisnull(info.get(), 0, 0))
+      throw std::runtime_error("read server version: " +
+                               std::string(PQerrorMessage(raw.get())));
+    std::string version = PQgetvalue(info.get(), 0, 0);
+    if (version.empty()) throw std::runtime_error("empty server version");
+    std::string identity = version;
+    std::transform(identity.begin(), identity.end(), identity.begin(),
+                   [](unsigned char value) { return std::tolower(value); });
+    bool const columnar = identity.find("pgrust") != std::string::npos;
+    std::cerr << "Server: " << version << "; columnar=" << columnar << '\n';
+    std::vector<char const*> tables{"public.lineitem_heap"};
+    if (columnar) tables.push_back("public.lineitem_columnar");
+    for (char const* table : tables) {
       int64_t expected = -1;
       for (bool copy : {true, false}) {
         std::array<double, 5> times{};

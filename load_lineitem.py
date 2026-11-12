@@ -17,6 +17,7 @@
 import argparse
 import math
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -30,16 +31,17 @@ COLUMNS = """
 """
 
 
-def sql(statement):
+def sql(statement, service, *, capture=False):
     return subprocess.run(
         [
             "docker",
             "compose",
             "exec",
             "-T",
-            "pgrust",
+            service,
             "psql",
             "-X",
+            *(["-A", "-t"] if capture else []),
             "-U",
             "postgres",
             "-d",
@@ -48,6 +50,7 @@ def sql(statement):
             "ON_ERROR_STOP=1",
         ],
         input=statement,
+        stdout=subprocess.PIPE if capture else None,
         text=True,
         check=True,
         cwd=ROOT,
@@ -57,6 +60,7 @@ def sql(statement):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scale-factor", type=float, default=2)
+    parser.add_argument("--service", choices=["pgrust", "postgres"], default="pgrust")
     args = parser.parse_args()
     if not math.isfinite(args.scale_factor) or args.scale_factor <= 0:
         parser.error("scale factor must be finite and positive")
@@ -64,8 +68,16 @@ def main():
     directory = ROOT / "data" / f"sf{scale}"
     directory.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["docker", "compose", "up", "-d", "--wait", "pgrust"], check=True, cwd=ROOT
+        ["docker", "compose", "up", "-d", "--wait", args.service], check=True, cwd=ROOT
     )
+    version = sql("SELECT version();", args.service, capture=True).stdout.strip()
+    if not version:
+        raise RuntimeError("server returned an empty version")
+    columnar = "pgrust" in version.lower()
+    print(f"Server: {version}; columnar={columnar}", file=sys.stderr)
+    tables = [("lineitem_heap", "heap")]
+    if columnar:
+        tables.append(("lineitem_columnar", "pgrcolumnar"))
     filename = directory / "lineitem.csv"
     stamp = directory / ".stamp"
     if not (stamp.is_file() and filename.is_file()):
@@ -92,15 +104,13 @@ def main():
     statements = [
         "\\timing on",
         "BEGIN;",
-        """DO $$ BEGIN
+    ]
+    if columnar:
+        statements.append("""DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_am WHERE amname = 'pgrcolumnar') THEN
       CREATE ACCESS METHOD pgrcolumnar TYPE TABLE HANDLER heap_tableam_handler;
-    END IF; END $$;""",
-    ]
-    for name, method in [
-        ("lineitem_heap", "heap"),
-        ("lineitem_columnar", "pgrcolumnar"),
-    ]:
+    END IF; END $$;""")
+    for name, method in tables:
         statements.append(f"DROP TABLE IF EXISTS public.{name};")
         statements.extend(
             [
@@ -112,7 +122,7 @@ def main():
             ]
         )
     statements.append("COMMIT;")
-    for name in ["lineitem_heap", "lineitem_columnar"]:
+    for name, method in tables:
         statements.extend(
             [
                 f"ANALYZE public.{name};",
@@ -123,7 +133,7 @@ def main():
                 ),
             ]
         )
-    sql("\n".join(statements))
+    sql("\n".join(statements), args.service)
 
 
 if __name__ == "__main__":

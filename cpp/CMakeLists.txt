@@ -50,4 +50,4 @@ target_link_libraries(lineitem_benchmark PRIVATE adbc_driver_postgresql_shared P
 add_executable(lineitem_ingest_benchmark ingest.cc)
 target_compile_features(lineitem_ingest_benchmark PRIVATE cxx_std_20)
 target_include_directories(lineitem_ingest_benchmark PRIVATE "${adbc_SOURCE_DIR}/c/include")
-target_link_libraries(lineitem_ingest_benchmark PRIVATE adbc_driver_postgresql_shared nanoarrow::nanoarrow_ipc)
+target_link_libraries(lineitem_ingest_benchmark PRIVATE adbc_driver_postgresql_shared nanoarrow::nanoarrow_ipc PostgreSQL::PostgreSQL)
