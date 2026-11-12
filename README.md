@@ -39,3 +39,24 @@ remove generated `data/` separately when no longer needed.
 
 If port 5432 is occupied, prefix commands with `PGRUST_PORT=55432` to
 publish that host port instead.
+
+## C++ ADBC benchmark
+
+Requires CMake 4+, Ninja, a C++20 compiler, pkg-config, and vcpkg's Linux
+build prerequisites (including curl, zip, unzip, tar, and autoconf).
+
+```sh
+git submodule update --init --recursive
+./vcpkg/bootstrap-vcpkg.sh
+cmake --preset release -S cpp
+cmake --build build
+./build/lineitem_benchmark 'postgresql://postgres:postgres@localhost:5432/tpch'
+```
+
+The benchmark assumes the loader has populated both tables. For each table
+it runs seven scans with default COPY behavior, then seven with COPY disabled.
+It discards the first two timings per mode and reports minimum, maximum,
+median, and arithmetic mean seconds for the remaining five. Timing covers
+query execution and consumption/release of all Arrow batches, excluding
+connection and statement setup. Values are not individually decoded by the
+benchmark. Row counts must agree across all scans of each table.
