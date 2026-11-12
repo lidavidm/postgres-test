@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <libpq-fe.h>
+
+#include <memory>
+
 #include "common.h"
 int main(int argc, char** argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
@@ -38,6 +42,11 @@ int main(int argc, char** argv) {
     error.Check(
         AdbcConnectionInit(&connection.value, &database.value, &error.value),
         "initialize connection");
+    std::unique_ptr<PGconn, decltype(&PQfinish)> raw(PQconnectdb(argv[1]),
+                                                     PQfinish);
+    if (!raw || PQstatus(raw.get()) != CONNECTION_OK)
+      throw std::runtime_error(raw ? PQerrorMessage(raw.get())
+                                   : "allocate libpq connection");
     for (char const* table :
          {"public.lineitem_heap", "public.lineitem_columnar"}) {
       int64_t expected = -1;
@@ -83,6 +92,46 @@ int main(int argc, char** argv) {
         Report(std::string(table) + " copy=" + (copy ? "default" : "disabled"),
                expected, times);
       }
+      std::array<double, 5> times{};
+      std::string const query = std::string("COPY (SELECT * FROM ") + table +
+                                ") TO STDOUT (FORMAT binary)";
+      for (int run = 0; run < 7; ++run) {
+        auto const start = std::chrono::steady_clock::now();
+        std::unique_ptr<PGresult, decltype(&PQclear)> result(
+            PQexec(raw.get(), query.c_str()), PQclear);
+        if (!result || PQresultStatus(result.get()) != PGRES_COPY_OUT)
+          throw std::runtime_error(PQerrorMessage(raw.get()));
+        result.reset();
+        while (true) {
+          char* data = nullptr;
+          int const size = PQgetCopyData(raw.get(), &data, 0);
+          std::unique_ptr<char, decltype(&PQfreemem)> buffer(data, PQfreemem);
+          if (size == -1) break;
+          if (size <= 0) throw std::runtime_error(PQerrorMessage(raw.get()));
+        }
+        std::string count;
+        std::string failure;
+        while (auto* next = PQgetResult(raw.get())) {
+          result.reset(next);
+          if (PQresultStatus(result.get()) != PGRES_COMMAND_OK)
+            failure = PQresultErrorMessage(result.get());
+          else
+            count = PQcmdTuples(result.get());
+        }
+        result.reset();
+        double const seconds = std::chrono::duration<double>(
+                                   std::chrono::steady_clock::now() - start)
+                                   .count();
+        if (!failure.empty()) throw std::runtime_error(failure);
+        if (count.empty()) throw std::runtime_error("missing COPY row count");
+        size_t consumed = 0;
+        int64_t const rows = std::stoll(count, &consumed);
+        if (consumed != count.size() || rows != expected)
+          throw std::runtime_error("inconsistent COPY row count");
+        if (run >= 2) times[run - 2] = seconds;
+      }
+      Report(std::string(table) + " copy=libpq-binary-unparsed", expected,
+             times);
     }
   } catch (std::exception const& error) {
     std::cerr << error.what() << '\n';

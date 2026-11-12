@@ -57,12 +57,14 @@ of CSV), and creates `public.lineitem_heap` and `public.lineitem_columnar`.
 ./build/lineitem_benchmark 'postgresql://postgres:postgres@localhost:5432/tpch'
 ```
 
-For each table it runs seven scans with COPY, then seven with COPY disabled.
-It discards the first two timings per mode and reports minimum, maximum,
-median, and arithmetic mean seconds for the remaining five. Timing covers
-query execution and consumption/release of all Arrow batches, excluding
-connection and statement setup. Values are not individually decoded by the
-benchmark. Row counts must agree across all scans of each table.
+For each table it runs seven ADBC scans with COPY, seven with COPY disabled,
+and seven raw libpq binary COPY scans.  It discards the first two timings per
+mode and reports minimum, maximum, median, and arithmetic mean seconds for the
+remaining five. Timing covers query execution and consumption/release of all
+Arrow batches, excluding connection and statement setup. Values are not
+individually decoded by the benchmark. The raw libpq configuration consumes
+and frees COPY buffers without parsing their contents. Row counts must agree
+across all scans of each table.
 
 ## Bulk ingestion benchmark
 

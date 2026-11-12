@@ -41,10 +41,11 @@ set(ENV{PKG_CONFIG_PATH}
     "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib/pkgconfig:${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/pkgconfig")
 FetchContent_MakeAvailable(adbc)
 set(ENV{PKG_CONFIG_PATH} "${saved_pkg_config_path}")
+find_package(PostgreSQL REQUIRED)
 add_executable(lineitem_benchmark main.cc)
 target_compile_features(lineitem_benchmark PRIVATE cxx_std_20)
 target_include_directories(lineitem_benchmark PRIVATE "${adbc_SOURCE_DIR}/c/include")
-target_link_libraries(lineitem_benchmark PRIVATE adbc_driver_postgresql_shared)
+target_link_libraries(lineitem_benchmark PRIVATE adbc_driver_postgresql_shared PostgreSQL::PostgreSQL)
 
 add_executable(lineitem_ingest_benchmark ingest.cc)
 target_compile_features(lineitem_ingest_benchmark PRIVATE cxx_std_20)
