@@ -3,4 +3,4 @@
 name = "pgrust-arrow-sandbox"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["tpchgen-cli>=4,<5"]
+dependencies = ["tpchgen-cli>=4,<5", "pyarrow"]

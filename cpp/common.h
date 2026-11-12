@@ -1,0 +1,64 @@
+// Copyright (c) 2026 Columnar Technologies Inc.  All rights reserved.
+#pragma once
+#include <arrow-adbc/adbc.h>
+
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <iostream>
+#include <numeric>
+#include <stdexcept>
+#include <string>
+
+struct Error {
+  AdbcError value{};
+  ~Error() {
+    if (value.release) value.release(&value);
+  }
+  void Check(AdbcStatusCode code, char const* action) {
+    if (code != ADBC_STATUS_OK)
+      throw std::runtime_error(std::string(action) + ": " +
+                               (value.message ? value.message : "ADBC error"));
+  }
+};
+struct Database {
+  AdbcDatabase value{};
+  ~Database() {
+    if (value.private_data) AdbcDatabaseRelease(&value, nullptr);
+  }
+};
+struct Connection {
+  AdbcConnection value{};
+  ~Connection() {
+    if (value.private_data) AdbcConnectionRelease(&value, nullptr);
+  }
+};
+struct Statement {
+  AdbcStatement value{};
+  ~Statement() {
+    if (value.private_data) AdbcStatementRelease(&value, nullptr);
+  }
+};
+struct Stream {
+  ArrowArrayStream value{};
+  ~Stream() {
+    if (value.release) value.release(&value);
+  }
+};
+struct Batch {
+  ArrowArray value{};
+  ~Batch() {
+    if (value.release) value.release(&value);
+  }
+};
+
+inline void Report(std::string const& label, int64_t rows,
+                   std::array<double, 5> times) {
+  std::sort(times.begin(), times.end());
+  std::cout << label << " rows=" << rows
+            << " runs=7 discarded=2 measured=5 min_s=" << times.front()
+            << " max_s=" << times.back() << " median_s=" << times[2]
+            << " average_s="
+            << std::accumulate(times.begin(), times.end(), 0.0) / times.size()
+            << std::endl;
+}
